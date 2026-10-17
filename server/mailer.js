@@ -13,13 +13,16 @@ app.use(cors()); // Allow requests from Vite React app (http://localhost:5173)
 
 // Configure Nodemailer SMTP Transporter
 // Replace user and pass with your actual SMTP credentials (e.g. Gmail App Password, Mailtrap, SendGrid)
+// Load env vars (this file is a standalone reference/template)
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465, // SSL
   secure: true,
   auth: {
-    user: '23se02ie028@ppsu.ac.in',
-    pass: 'ocfzrsfcgtqrijbj'
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
   }
 });
 

@@ -1,6 +1,6 @@
 // Navbar Component - Crewcore HR Management System
 import React from 'react';
-import { Briefcase, BookOpen, Users, LogOut, Layers, Award, Sun, Moon } from 'lucide-react';
+import { Briefcase, BookOpen, Users, LogOut, Layers, Award, Sun, Moon, History } from 'lucide-react';
 
 interface NavbarProps {
   user: {
@@ -36,9 +36,27 @@ export const Navbar: React.FC<NavbarProps> = ({
   const candidateTabs = [
     { id: 'domains', label: 'Academy & Domains', icon: BookOpen },
     { id: 'jobs', label: 'Browse Jobs & Apply', icon: Briefcase },
+    { id: 'my-applications', label: 'Application History', icon: History },
   ];
 
   const tabs = isRecruiter ? recruiterTabs : candidateTabs;
+
+  let candidateAppCount = 0;
+  if (!isRecruiter) {
+    try {
+      const saved = localStorage.getItem('crewcore_applications');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const userApps = parsed.filter((c: any) =>
+            c.email?.toLowerCase() === user.email?.toLowerCase() ||
+            c.name?.toLowerCase() === user.name?.toLowerCase()
+          );
+          candidateAppCount = userApps.length > 0 ? userApps.length : parsed.length;
+        }
+      }
+    } catch (e) {}
+  }
 
   return (
     <nav className="glass-panel" style={{
@@ -104,6 +122,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Icon size={16} />
               {tab.label}
+              {tab.id === 'my-applications' && candidateAppCount > 0 && (
+                <span className="badge badge-emerald" style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '10px' }}>
+                  {candidateAppCount}
+                </span>
+              )}
             </button>
           );
         })}

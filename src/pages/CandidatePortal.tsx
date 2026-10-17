@@ -7,7 +7,7 @@ import type { TrainingScenario } from '../data/trainingScenarios';
 import { aiEngine, getApiBaseUrl } from '../services/aiEngine';
 import type { ScreeningReport } from '../services/aiEngine';
 import { StudyNotesModal } from '../components/StudyNotesModal';
-import { BookOpen, Award, ArrowRight, ShieldCheck, Sparkles, Check, ChevronRight, Play, X, FileText, ExternalLink } from 'lucide-react';
+import { BookOpen, Award, ArrowRight, ShieldCheck, Sparkles, Check, ChevronRight, Play, X, FileText, ExternalLink, Clock, CheckCircle, History } from 'lucide-react';
 
 interface CandidatePortalProps {
   user: { name: string; email: string; role: 'recruiter' | 'candidate' };
@@ -45,6 +45,47 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
   const [screeningResult, setScreeningResult] = useState<ScreeningReport | null>(null);
   const [uploadedFile, setUploadedFile] = useState<{ fileName: string; fileData: string; contentType: string } | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
+
+  // Real-time Applications Tracker Sync State
+  const [allCandidates, setAllCandidates] = useState<Candidate[]>([]);
+
+  // Synchronize applications with backend database and localStorage every 3 seconds
+  useEffect(() => {
+    const syncApplications = async () => {
+      try {
+        const token = localStorage.getItem('crewcore_token');
+        const response = await fetch(`${getApiBaseUrl()}/api/candidates`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data: Candidate[] = await response.json();
+          setAllCandidates(data);
+          localStorage.setItem('crewcore_applications', JSON.stringify(data));
+        } else {
+          fallbackSyncApps();
+        }
+      } catch (err) {
+        fallbackSyncApps();
+      }
+    };
+
+    const fallbackSyncApps = () => {
+      const savedApps = localStorage.getItem('crewcore_applications');
+      if (savedApps) {
+        try {
+          setAllCandidates(JSON.parse(savedApps));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    };
+
+    syncApplications();
+    const interval = setInterval(syncApplications, 3000);
+    return () => clearInterval(interval);
+  }, []);
   
   // Training Academy States
   const [activeScenario, setActiveScenario] = useState<TrainingScenario | null>(null);
@@ -150,7 +191,7 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
       const result = await aiEngine.screenCandidateApplication(resumeText, answers);
       setScreeningResult(result);
 
-      // Save application record to localStorage so Recruiter dashboard sees it
+      // Create application record
       const appRecord: Candidate = {
         id: 'cand_' + Date.now(),
         name: user.name,
@@ -168,7 +209,14 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
         weaknesses: result.weaknesses,
       };
 
-      // Save application record to MongoDB
+      // Immediately save to candidates state and localStorage for instant connection with recruiter side
+      setAllCandidates(prev => {
+        const updated = [appRecord, ...prev.filter(c => c.id !== appRecord.id)];
+        localStorage.setItem('crewcore_applications', JSON.stringify(updated));
+        return updated;
+      });
+
+      // Save application record to MongoDB backend
       try {
         const token = localStorage.getItem('crewcore_token');
         const response = await fetch(`${getApiBaseUrl()}/api/candidates`, {
@@ -184,11 +232,7 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
         }
         console.log('Successfully saved application to MongoDB.');
       } catch (dbErr) {
-        console.log('MongoDB backend offline, falling back to local storage.');
-        const existingApps = localStorage.getItem('crewcore_applications');
-        const apps = existingApps ? JSON.parse(existingApps) : [];
-        apps.unshift(appRecord);
-        localStorage.setItem('crewcore_applications', JSON.stringify(apps));
+        console.log('MongoDB backend offline, saved to local storage.');
       }
 
     } catch (err) {
@@ -471,32 +515,42 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: selectedJob ? '1fr 1fr' : '1fr', gap: '2rem', alignItems: 'start' }}>
             {/* Jobs List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {jobs.map(job => (
-                <div
-                  key={job.id}
-                  onClick={() => { setSelectedJob(job); setIsApplying(false); setScreeningResult(null); }}
-                  className="glass-panel"
-                  style={{
-                    padding: '1.5rem 2rem',
-                    cursor: 'pointer',
-                    border: selectedJob?.id === job.id ? '1px solid var(--candidate-color)' : '1px solid var(--border-color)',
-                    boxShadow: selectedJob?.id === job.id ? '0 0 15px var(--candidate-glow)' : 'none',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>{job.title}</h3>
-                    <span className="badge badge-emerald">{job.type}</span>
+              {jobs.map(job => {
+                const existingApp = allCandidates.find(c => c.roleApplied === job.title);
+                return (
+                  <div
+                    key={job.id}
+                    onClick={() => { setSelectedJob(job); setIsApplying(false); setScreeningResult(null); }}
+                    className="glass-panel"
+                    style={{
+                      padding: '1.5rem 2rem',
+                      cursor: 'pointer',
+                      border: selectedJob?.id === job.id ? '1px solid var(--candidate-color)' : '1px solid var(--border-color)',
+                      boxShadow: selectedJob?.id === job.id ? '0 0 15px var(--candidate-glow)' : 'none',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>{job.title}</h3>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {existingApp && (
+                          <span className={`badge ${existingApp.status === 'Hired' ? 'badge-emerald' : existingApp.status === 'Rejected' ? 'badge-info' : 'badge-purple'}`}>
+                            Status: {existingApp.status}
+                          </span>
+                        )}
+                        <span className="badge badge-emerald">{job.type}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                      <span>📍 {job.location}</span>
+                      <span>💼 Exp: {job.experience}</span>
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {job.description}
+                    </p>
                   </div>
-                  <div style={{ display: 'flex', gap: '1rem', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-                    <span>📍 {job.location}</span>
-                    <span>💼 Exp: {job.experience}</span>
-                  </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {job.description}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Selected Job Panel */}
@@ -505,9 +559,14 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
                 {!isApplying ? (
                   <>
                     <h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.5rem' }}>{selectedJob.title}</h2>
-                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
                       <span className="badge badge-emerald">{selectedJob.type}</span>
                       <span className="badge badge-info">{selectedJob.experience}</span>
+                      {allCandidates.find(c => c.roleApplied === selectedJob.title) && (
+                        <span className="badge badge-purple" style={{ textTransform: 'uppercase' }}>
+                          Current Recruiter Status: {allCandidates.find(c => c.roleApplied === selectedJob.title)?.status}
+                        </span>
+                      )}
                     </div>
 
                     <div style={{ marginBottom: '1.5rem' }}>
@@ -527,7 +586,7 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
                       className="btn btn-candidate"
                       style={{ width: '100%', padding: '0.85rem' }}
                     >
-                      Apply & Test Your Fit
+                      {allCandidates.find(c => c.roleApplied === selectedJob.title) ? 'Re-Apply & Update Fit Profile' : 'Apply & Test Your Fit'}
                     </button>
                   </>
                 ) : (
@@ -577,7 +636,7 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
                           </div>
                           <div>
                             <div style={{ fontWeight: 700, fontSize: '1rem' }}>AI Fit Match Score</div>
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Successfully submitted to the recruiter database.</div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Successfully connected & submitted to the recruiter database.</div>
                           </div>
                         </div>
 
@@ -744,6 +803,365 @@ export const CandidatePortal: React.FC<CandidatePortalProps> = ({
                     )}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Real-time Application History Section on Job Board Page */}
+          {allCandidates.length > 0 && (
+            <div style={{ marginTop: '3rem', borderTop: '1px solid var(--border-color)', paddingTop: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.3rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <History size={20} color="var(--candidate-color)" />
+                    My Application History & Recruiter Pipeline
+                  </h3>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                    History of your submitted applications and live recruiter pipeline lifecycle decisions.
+                  </p>
+                </div>
+                <span className="badge badge-emerald" style={{ fontSize: '0.8rem' }}>
+                  {(allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()).length || allCandidates.length)} Submitted
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+                {(allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()).length ? allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()) : allCandidates).map(app => {
+                  let statusBg = 'rgba(139, 92, 246, 0.15)';
+                  let statusColor = '#8b5cf6';
+                  let statusBorder = 'rgba(139, 92, 246, 0.3)';
+
+                  if (app.status === 'Interviewing') {
+                    statusColor = '#3b82f6';
+                    statusBg = 'rgba(59, 130, 246, 0.15)';
+                    statusBorder = 'rgba(59, 130, 246, 0.3)';
+                  } else if (app.status === 'Hired') {
+                    statusColor = '#10b981';
+                    statusBg = 'rgba(16, 185, 129, 0.15)';
+                    statusBorder = 'rgba(16, 185, 129, 0.3)';
+                  } else if (app.status === 'Rejected') {
+                    statusColor = '#ef4444';
+                    statusBg = 'rgba(239, 68, 68, 0.15)';
+                    statusBorder = 'rgba(239, 68, 68, 0.3)';
+                  }
+
+                  return (
+                    <div
+                      key={app.id}
+                      className="glass-panel"
+                      style={{
+                        padding: '1.25rem 1.5rem',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justify: 'space-between',
+                        gap: '1rem'
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                          <div>
+                            <h4 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{app.roleApplied}</h4>
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>📅 {app.appliedDate}</span>
+                          </div>
+                          <span style={{
+                            background: statusBg,
+                            color: statusColor,
+                            border: `1px solid ${statusBorder}`,
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '8px',
+                            fontWeight: 800,
+                            fontSize: '0.78rem',
+                            textTransform: 'uppercase'
+                          }}>
+                            {app.status}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.5rem 0.75rem', borderRadius: '8px', marginBottom: '0.75rem' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>AI Match Score:</span>
+                          <span style={{ fontWeight: 800, color: 'var(--candidate-color)', fontSize: '0.9rem' }}>{app.aiFitScore}% Fit</span>
+                        </div>
+
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {app.aiSummary}
+                        </p>
+                      </div>
+
+                      {app.resumeFile && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--candidate-color)', display: 'flex', alignItems: 'center', gap: '0.3rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem' }}>
+                          <FileText size={12} />
+                          <span>File: {app.resumeFile.fileName}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 3. MY APPLICATIONS & RECRUITER STATUS TRACKER TAB */}
+      {activeTab === 'my-applications' && (
+        <>
+          <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+            <h1 className="section-title">My Applications & Status Tracker</h1>
+            <p className="section-desc" style={{ maxWidth: '650px', margin: '0.5rem auto' }}>
+              Track real-time status updates on your job applications. Any status changes made by recruiters in the Applicants Tracker appear here immediately.
+            </p>
+          </div>
+
+          {/* Quick Stats Grid */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '1.25rem',
+            marginBottom: '1rem'
+          }}>
+            <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ background: 'var(--candidate-icon-bg)', width: '44px', height: '44px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--candidate-color)' }}>
+                <FileText size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Submitted Applications</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>
+                  {allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()).length || allCandidates.length}
+                </div>
+              </div>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ background: 'rgba(245, 158, 11, 0.15)', width: '44px', height: '44px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
+                <Clock size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Active In Pipeline</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>
+                  {(allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()).length ? allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()) : allCandidates).filter(a => a.status === 'Applied' || a.status === 'Interviewing').length}
+                </div>
+              </div>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ background: 'rgba(16, 185, 129, 0.15)', width: '44px', height: '44px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981' }}>
+                <CheckCircle size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Hired / Extended</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>
+                  {(allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()).length ? allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()) : allCandidates).filter(a => a.status === 'Hired').length}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Applications Cards List */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {(allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()).length ? allCandidates.filter(c => c.email?.toLowerCase() === user.email?.toLowerCase() || c.name?.toLowerCase() === user.name?.toLowerCase()) : allCandidates).map(app => {
+              // Recruiter Status Styling matching Screenshot 3
+              let statusColor = '#8b5cf6';
+              let statusBg = 'rgba(139, 92, 246, 0.15)';
+              let statusBorder = 'rgba(139, 92, 246, 0.3)';
+
+              if (app.status === 'Interviewing') {
+                statusColor = '#3b82f6';
+                statusBg = 'rgba(59, 130, 246, 0.15)';
+                statusBorder = 'rgba(59, 130, 246, 0.3)';
+              } else if (app.status === 'Hired') {
+                statusColor = '#10b981';
+                statusBg = 'rgba(16, 185, 129, 0.15)';
+                statusBorder = 'rgba(16, 185, 129, 0.3)';
+              } else if (app.status === 'Rejected') {
+                statusColor = '#ef4444';
+                statusBg = 'rgba(239, 68, 68, 0.15)';
+                statusBorder = 'rgba(239, 68, 68, 0.3)';
+              }
+
+              const stepIndex = app.status === 'Applied' ? 1 : app.status === 'Interviewing' ? 2 : 3;
+
+              return (
+                <div
+                  key={app.id}
+                  className="glass-panel"
+                  style={{
+                    padding: '2rem',
+                    border: '1px solid var(--border-color)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1.5rem'
+                  }}
+                >
+                  {/* Top Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem' }}>
+                        <h2 style={{ fontSize: '1.35rem', fontWeight: 800 }}>{app.roleApplied}</h2>
+                        <span className="badge badge-emerald" style={{ textTransform: 'uppercase' }}>
+                          {app.domain ? app.domain.replace('-', ' ') : 'General'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', gap: '1.25rem' }}>
+                        <span>📅 Applied Date: <strong>{app.appliedDate}</strong></span>
+                        <span>👤 Applicant: <strong>{app.name}</strong></span>
+                      </div>
+                    </div>
+
+                    {/* Status & AI Score Pills */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{
+                        background: statusBg,
+                        border: `1px solid ${statusBorder}`,
+                        padding: '0.5rem 1rem',
+                        borderRadius: '10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                      }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recruiter Status:</span>
+                        <span style={{ fontWeight: 800, fontSize: '0.95rem', color: statusColor, textTransform: 'uppercase' }}>
+                          {app.status}
+                        </span>
+                      </div>
+
+                      <div style={{
+                        background: 'var(--candidate-gradient)',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '10px',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: '0.95rem',
+                        boxShadow: '0 0 10px var(--candidate-glow)'
+                      }}>
+                        {app.aiFitScore}% Fit Match
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recruiter Lifecycle Stepper Progress */}
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    padding: '1.25rem 1.5rem',
+                    borderRadius: '12px',
+                    border: '1px solid var(--border-color)',
+                  }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '1rem' }}>
+                      Recruiter Pipeline Lifecycle Progress
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      {/* Step 1: Applied */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', zIndex: 2 }}>
+                        <div style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          background: stepIndex >= 1 ? 'var(--candidate-color)' : 'rgba(255,255,255,0.1)',
+                          color: stepIndex >= 1 ? '#000' : 'var(--text-muted)',
+                          fontWeight: 800,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.85rem'
+                        }}>
+                          ✓
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: stepIndex >= 1 ? 'var(--text-primary)' : 'var(--text-muted)' }}>1. Applied</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Application Submitted</div>
+                        </div>
+                      </div>
+
+                      <div style={{ flex: 1, height: '2px', background: stepIndex >= 2 ? 'var(--candidate-color)' : 'rgba(255,255,255,0.1)', margin: '0 1rem' }}></div>
+
+                      {/* Step 2: Interviewing */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', zIndex: 2 }}>
+                        <div style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          background: stepIndex >= 2 ? '#3b82f6' : 'rgba(255,255,255,0.1)',
+                          color: stepIndex >= 2 ? '#fff' : 'var(--text-muted)',
+                          fontWeight: 800,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.85rem'
+                        }}>
+                          {stepIndex > 2 ? '✓' : '2'}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: stepIndex >= 2 ? 'var(--text-primary)' : 'var(--text-muted)' }}>2. Interviewing</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Screening & Interviews</div>
+                        </div>
+                      </div>
+
+                      <div style={{ flex: 1, height: '2px', background: stepIndex >= 3 ? (app.status === 'Rejected' ? '#ef4444' : '#10b981') : 'rgba(255,255,255,0.1)', margin: '0 1rem' }}></div>
+
+                      {/* Step 3: Decision (Hired or Rejected) */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', zIndex: 2 }}>
+                        <div style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          background: stepIndex >= 3 ? (app.status === 'Rejected' ? '#ef4444' : '#10b981') : 'rgba(255,255,255,0.1)',
+                          color: stepIndex >= 3 ? '#fff' : 'var(--text-muted)',
+                          fontWeight: 800,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.85rem'
+                        }}>
+                          {app.status === 'Hired' ? '✓' : app.status === 'Rejected' ? '✕' : '3'}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: stepIndex >= 3 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                            3. {app.status === 'Hired' ? 'Hired' : app.status === 'Rejected' ? 'Rejected' : 'Final Decision'}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {app.status === 'Hired' ? 'Offer Extended & Accepted' : app.status === 'Rejected' ? 'Not Selected' : 'Pending Final Review'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary & Evaluated Strengths */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.015)', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <h4 style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>AI Screening Assessment</h4>
+                      <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{app.aiSummary}</p>
+                    </div>
+
+                    <div style={{ background: 'rgba(255,255,255,0.015)', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <div>
+                        <h4 style={{ fontSize: '0.82rem', color: 'var(--candidate-color)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Key Evaluated Strengths</h4>
+                        <ul style={{ paddingLeft: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          {app.strengths && app.strengths.map((s, idx) => <li key={idx}>{s}</li>)}
+                        </ul>
+                      </div>
+
+                      {app.resumeFile && (
+                        <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <FileText size={14} color="var(--candidate-color)" />
+                          <span>Attached File: <strong>{app.resumeFile.fileName}</strong></span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {allCandidates.length === 0 && (
+              <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <FileText size={40} style={{ opacity: 0.5, marginBottom: '1rem', color: 'var(--candidate-color)' }} />
+                <h3>No Applications Submitted Yet</h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', maxWidth: '450px', margin: '0.5rem auto 1.5rem' }}>
+                  Browse our open HR job listings, complete the pre-screening questions, and submit your application to get instant AI match scores and recruiter updates.
+                </p>
               </div>
             )}
           </div>

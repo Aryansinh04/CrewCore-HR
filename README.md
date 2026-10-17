@@ -79,5 +79,3 @@ graph TD
 | **Backend** | Node.js, Express, Nodemailer (SMTP OTP Delivery) |
 | **Database** | MongoDB, Mongoose |
 | **Styling** | Custom Glassmorphic CSS Engine, Theme Sync (Classic / Monochrome) |
-
----

@@ -120,12 +120,19 @@ export const RecruiterPortal: React.FC<RecruiterPortalProps> = ({
     }
   }, [autoFillJDText, onClearAutoFillJD]);
 
-  // Set default selected candidate
+  // Set default selected candidate & sync status changes
   useEffect(() => {
-    if (candidates.length > 0 && !selectedCandidate) {
-      setSelectedCandidate(candidates[0]);
+    if (candidates.length > 0) {
+      if (!selectedCandidate) {
+        setSelectedCandidate(candidates[0]);
+      } else {
+        const currentInList = candidates.find(c => c.id === selectedCandidate.id);
+        if (currentInList && currentInList.status !== selectedCandidate.status) {
+          setSelectedCandidate(currentInList);
+        }
+      }
     }
-  }, [candidates, selectedCandidate]);
+  }, [candidates]);
 
   // Load Notes when selected candidate changes
   useEffect(() => {
