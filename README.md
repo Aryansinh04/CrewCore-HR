@@ -97,7 +97,7 @@ Crewcore/
 │   ├── pages/          # Primary Pages (Login, CandidatePortal, RecruiterPortal)
 │   └── main.tsx        # React entrypoint
 ├── server/             # Express.js Backend Server
-│   ├── server.js       # Database models, API routes, and Nodemailer integration
+│   ├── server.cjs      # Database models, API routes, and Nodemailer integration
 │   └── mailer.js       # SMTP helper configuration
 ├── package.json        # Frontend & toolchain dependencies
 └── .env                # Local environment secrets configuration
@@ -107,7 +107,7 @@ Crewcore/
 Create a `.env` file in the root directory:
 ```env
 PORT=5000
-MONGODB_URI=mongodb://127.5.5.1:27017/crewcore
+MONGODB_URI=mongodb://127.0.0.1:27017/crewcore
 JWT_SECRET=your_jwt_signing_secret_key_here
 SMTP_USER=your_verified_smtp_email@gmail.com
 SMTP_PASS=your_smtp_app_password_here
